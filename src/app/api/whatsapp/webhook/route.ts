@@ -329,6 +329,11 @@ async function handleStatusUpdate(status: {
   status: string
   timestamp: string
   recipient_id: string
+  errors?: Array<{
+    code: number
+    title: string
+    message: string
+  }>
 }) {
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
   //    already match the CHECK constraint on messages.status.
@@ -363,10 +368,15 @@ async function handleStatusUpdate(status: {
   // `failed` only from pre-delivered states.
   if (!isValidStatusTransition(recipient.status, status.status)) return
 
+  const errorMsg = status.errors && status.errors.length > 0 
+    ? `${status.errors[0].message} (code: ${status.errors[0].code})` 
+    : null
+
   const update: Record<string, unknown> = { status: status.status }
   if (status.status === 'sent' && !('sent_at' in update)) update.sent_at = tsIso
   if (status.status === 'delivered') update.delivered_at = tsIso
   if (status.status === 'read') update.read_at = tsIso
+  if (status.status === 'failed' && errorMsg) update.error_message = errorMsg
 
   const { error: recUpdateErr } = await supabaseAdmin()
     .from('broadcast_recipients')

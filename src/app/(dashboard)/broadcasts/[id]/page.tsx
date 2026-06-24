@@ -512,7 +512,10 @@ export default function BroadcastDetailPage() {
                           ? new Date(recipient.read_at).toLocaleString()
                           : '-'}
                       </TableCell>
-                      <TableCell className="max-w-xs truncate text-xs text-red-400">
+                      <TableCell 
+                        className="max-w-xs truncate text-xs text-red-400"
+                        title={recipient.error_message ?? undefined}
+                      >
                         {recipient.error_message ?? '-'}
                       </TableCell>
                     </TableRow>

@@ -13,17 +13,29 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
+          const isHttps = request.nextUrl.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https'
           cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, {
+              ...options,
+              secure: isHttps,
+            })
           )
         },
       },
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+
+  console.log('[Middleware debug]', {
+    path: request.nextUrl.pathname,
+    hasSessionCookies: request.cookies.getAll().some(c => c.name.startsWith('sb-')),
+    cookieNames: request.cookies.getAll().map(c => c.name).filter(n => n.startsWith('sb-')),
+    hasUser: !!user,
+    userError: userError?.message,
+  })
 
   // getUser() transparently refreshes an expired access token, which
   // ROTATES the refresh token and writes the new cookies onto
