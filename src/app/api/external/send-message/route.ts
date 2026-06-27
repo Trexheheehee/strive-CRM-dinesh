@@ -128,6 +128,7 @@ export async function POST(request: Request) {
     }
 
     // 5. Resolve/Create Contact (CRM Sync)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let contact: any = null
     const existingContact = await findExistingContact(db, accountId, normalizedPhone)
 
@@ -165,6 +166,7 @@ export async function POST(request: Request) {
     }
 
     // 6. Resolve/Create Conversation (CRM Sync)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let conversation: any = null
     const { data: existingConv, error: findError } = await db
       .from('conversations')
@@ -206,6 +208,7 @@ export async function POST(request: Request) {
 
     // Determine what content text to save for visual rendering in the Inbox UI
     let contentText = message
+    let mediaUrl = null
     if (type === 'interactive') {
       const interactiveType = interactive.type
       if (interactiveType === 'flow') {
@@ -214,6 +217,10 @@ export async function POST(request: Request) {
         contentText = interactive.header?.text || '[Catalog Sent]'
       } else {
         contentText = interactive.body?.text || '[Interactive Message]'
+      }
+
+      if (interactive.header) {
+        mediaUrl = JSON.stringify(interactive.header)
       }
     }
 
@@ -225,6 +232,7 @@ export async function POST(request: Request) {
         sender_type: 'agent',
         content_type: type === 'interactive' ? 'interactive' : 'text',
         content_text: contentText,
+        media_url: mediaUrl,
         message_id: waMessageId,
         status: 'sent',
       })

@@ -51,6 +51,16 @@ interface WhatsAppMessage {
   }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  order?: {
+    catalog_id: string
+    text?: string
+    product_items: Array<{
+      product_retailer_id: string
+      quantity: string | number
+      item_price: string | number
+      currency: string
+    }>
+  }
 }
 
 interface WhatsAppWebhookEntry {
@@ -879,6 +889,19 @@ async function parseMessageContent(
         }
       }
       return { ...empty, contentText: '[Interactive reply]' }
+    }
+
+    case 'order': {
+      if (message.order?.product_items) {
+        const items = message.order.product_items
+          .map((item) => `${item.quantity}x ${item.product_retailer_id}`)
+          .join(', ')
+        return {
+          ...empty,
+          contentText: `Order: ${items}`,
+        }
+      }
+      return { ...empty, contentText: 'Order: (no items)' }
     }
 
     default:

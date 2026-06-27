@@ -214,6 +214,35 @@ function MessageContent({ message }: { message: Message }) {
       );
 
     case "interactive": {
+      const isAgent = message.sender_type === "agent" || message.sender_type === "bot";
+      if (isAgent) {
+        let header = null;
+        if (message.media_url) {
+          try {
+            header = JSON.parse(message.media_url);
+          } catch {
+            header = { type: "image", image: { link: message.media_url } };
+          }
+        }
+        return (
+          <div className="flex flex-col gap-1.5">
+            {header && header.type === "image" && header.image?.link && (
+              <MediaImage url={header.image.link} alt="Interactive header image" />
+            )}
+            {header && header.type === "video" && header.video?.link && (
+              <video
+                src={header.video.link}
+                controls
+                className="max-h-64 max-w-60 rounded-lg object-cover"
+              />
+            )}
+            <p className="whitespace-pre-wrap break-words text-sm">
+              {message.content_text}
+            </p>
+          </div>
+        );
+      }
+
       // Customer tapped a reply button or list row on a message the bot
       // sent. We show the tapped option's title (already in content_text,
       // set by parseMessageContent in the webhook) with a small affordance
