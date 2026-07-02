@@ -30,6 +30,14 @@ import {
 } from '@/components/ui/accordion';
 import type { WhatsAppConfig as WhatsAppConfigType } from '@/types';
 
+declare global {
+  interface Window {
+    fbAsyncInit?: () => void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    FB?: any;
+  }
+}
+
 const MASKED_TOKEN = '••••••••••••••••';
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'unknown';
@@ -169,6 +177,59 @@ export function WhatsAppConfig() {
     }
     fetchConfig(accountId);
   }, [authLoading, profileLoading, user, accountId, fetchConfig]);
+
+  // Load Facebook SDK for Embedded Signup
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.FB) return;
+
+    window.fbAsyncInit = function () {
+      window.FB.init({
+        appId: process.env.NEXT_PUBLIC_WHATSAPP_APP_ID || '',
+        cookie: true,
+        xfbml: true,
+        version: 'v21.0',
+      });
+    };
+
+    const id = 'facebook-jssdk';
+    if (document.getElementById(id)) return;
+    const fjs = document.getElementsByTagName('script')[0];
+    const js = document.createElement('script') as HTMLScriptElement;
+    js.id = id;
+    js.src = 'https://connect.facebook.net/en_US/sdk.js';
+    
+    if (fjs && fjs.parentNode) {
+      fjs.parentNode.insertBefore(js, fjs);
+    } else {
+      document.head.appendChild(js);
+    }
+  }, []);
+
+  function launchWhatsAppSignup() {
+    if (!window.FB) {
+      toast.error('Facebook SDK not loaded yet. Please try again in a moment.');
+      return;
+    }
+
+    window.FB.login(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (response: any) => {
+        console.log('[Meta Embedded Signup] Auth Response:', response);
+        if (response.authResponse) {
+          toast.success('Successfully authenticated with Facebook!');
+        } else {
+          toast.error('Facebook login cancelled or failed.');
+        }
+      },
+      {
+        scope: 'whatsapp_business_management,whatsapp_business_messaging',
+        extras: {
+          feature: 'whatsapp_embedded_signup',
+        },
+      }
+    );
+  }
 
   async function handleSave() {
     if (!phoneNumberId.trim()) {
@@ -547,12 +608,33 @@ export function WhatsAppConfig() {
           </Alert>
         )}
 
+        {/* Automated Onboarding */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-foreground">Automated Onboarding (Recommended)</CardTitle>
+            <CardDescription className="text-muted-foreground">
+              Use our automated flow to connect your WhatsApp Business account in seconds. No manual ID entry required.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              onClick={launchWhatsAppSignup}
+              className="w-full bg-[#1877F2] hover:bg-[#166fe5] text-white font-bold flex items-center justify-center gap-2 h-11 border-none transition-colors"
+            >
+              <svg className="size-5 fill-current text-white shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+              Login with Facebook
+            </Button>
+          </CardContent>
+        </Card>
+
         {/* API Credentials */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-foreground">API Credentials</CardTitle>
+            <CardTitle className="text-foreground">Advanced Setup</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Enter your Meta WhatsApp Business API credentials.
+              Enter your Meta WhatsApp Business API credentials manually.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
