@@ -10,6 +10,7 @@ import {
   Crown,
   GitBranch,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   MessageSquare,
   Radio,
@@ -97,6 +98,7 @@ const navItems: NavItem[] = [
 ];
 
 const bottomNavItems = [
+  { href: "/support", label: "Support", icon: LifeBuoy },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

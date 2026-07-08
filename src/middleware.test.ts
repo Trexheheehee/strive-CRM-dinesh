@@ -110,4 +110,38 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     expect(res.headers.get("location")).toBeNull();
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
   });
+
+  it("redirects an unauth user on /support to /login", async () => {
+    mockUser = null;
+    refreshedCookies = [];
+
+    const res = await middleware(
+      new NextRequest("https://app.test/support"),
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/login");
+  });
+
+  it("passes through (no redirect) for an unauth user on /privacy", async () => {
+    mockUser = null;
+    refreshedCookies = [];
+
+    const res = await middleware(
+      new NextRequest("https://app.test/privacy"),
+    );
+
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("passes through (no redirect) for an unauth user on /terms", async () => {
+    mockUser = null;
+    refreshedCookies = [];
+
+    const res = await middleware(
+      new NextRequest("https://app.test/terms"),
+    );
+
+    expect(res.headers.get("location")).toBeNull();
+  });
 });
