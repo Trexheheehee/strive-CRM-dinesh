@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Conversation, Message, Contact, ConversationStatus } from "@/types";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useAuth } from "@/hooks/use-auth";
 import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
@@ -19,6 +20,7 @@ const CONTACT_PANEL_STORAGE_KEY = "wacrm:inbox:contact-panel-open";
 export default function InboxPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { accountId } = useAuth();
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
    * dashboard's recent-conversations list so the right thread opens
@@ -134,6 +136,7 @@ export default function InboxPage() {
       }
       if (!data) return;
       const fetched = data as Conversation;
+      if (accountId && fetched.account_id !== accountId) return;
       setConversations((prev) => {
         const existing = prev.find((c) => c.id === fetched.id);
         if (existing) {
@@ -153,7 +156,7 @@ export default function InboxPage() {
     } finally {
       hydratingConvIdsRef.current.delete(convId);
     }
-  }, []);
+  }, [accountId]);
 
   // Check WhatsApp connection status on mount
   useEffect(() => {
@@ -197,10 +200,10 @@ export default function InboxPage() {
 
   // Handle realtime message events
   const handleMessageEvent = useCallback(
-    (event: { eventType: string; new: Message; old: Partial<Message> }) => {
-      const newMsg = event.new;
+    (payload: { eventType: string; new: Message; old: Partial<Message> }) => {
+      const newMsg = payload.new;
 
-      if (event.eventType === "INSERT") {
+      if (payload.eventType === "INSERT") {
         // Add to messages if it belongs to active conversation
         if (
           activeConversation &&
@@ -248,41 +251,40 @@ export default function InboxPage() {
         }
       }
 
-      if (event.eventType === "UPDATE") {
+      if (payload.eventType === "UPDATE") {
         // Update message status
         setMessages((prev) =>
           prev.map((m) => (m.id === newMsg.id ? { ...m, ...newMsg } : m))
         );
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, hydrateConversation, accountId]
   );
 
   // Handle realtime conversation events
   const handleConversationEvent = useCallback(
-    (event: {
+    (payload: {
       eventType: string;
       new: Conversation;
       old: Partial<Conversation>;
     }) => {
-      const conv = event.new;
+      const conv = payload.new;
 
-      if (event.eventType === "INSERT") {
+      if (payload.eventType === "INSERT") {
+        if (accountId && conv.account_id !== accountId) return;
         // Prepend immediately for snappy UX so the new conv shows in the
         // list right away, then hydrate to fill in the `contact` join
         // (realtime payloads never include joins). Skip both if we
         // already have the row — that shouldn't happen normally, but
         // out-of-order delivery would have us prepending a duplicate.
         if (!knownConvIdsRef.current.has(conv.id)) {
-          setConversations((prev) => {
-            if (prev.some((c) => c.id === conv.id)) return prev;
-            return [conv, ...prev];
-          });
+          setConversations((prev) => [payload.new, ...prev]);
           hydrateConversation(conv.id);
         }
       }
 
-      if (event.eventType === "UPDATE") {
+      if (payload.eventType === "UPDATE") {
+        if (accountId && conv.account_id !== accountId) return;
         if (knownConvIdsRef.current.has(conv.id)) {
           // If this UPDATE is for the conv the user is currently viewing,
           // suppress the incoming unread_count — the user is reading it
@@ -317,7 +319,7 @@ export default function InboxPage() {
         }
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, hydrateConversation, accountId]
   );
 
   // Subscribe to realtime. The `isConnected` flag below feeds the

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import type { Message, Conversation } from "@/types";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
@@ -24,6 +25,8 @@ export function useRealtime({
   onConversationEvent,
   enabled = true,
 }: UseRealtimeOptions) {
+  const { user } = useAuth();
+  const userId = user?.id;
   const channelRef = useRef<RealtimeChannel | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
@@ -40,7 +43,7 @@ export function useRealtime({
   });
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !userId) return;
 
     const supabase = createClient();
 
@@ -79,7 +82,7 @@ export function useRealtime({
       channelRef.current = null;
       setIsConnected(false);
     };
-  }, [channelName, enabled]);
+  }, [channelName, enabled, userId]);
 
   const unsubscribe = useCallback(() => {
     if (channelRef.current) {
