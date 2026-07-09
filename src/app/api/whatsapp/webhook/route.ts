@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
@@ -11,6 +11,8 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+
+export const maxDuration = 60
 
 // Lazy-initialized to avoid build-time crash when env vars are missing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -202,9 +204,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
-  // Process asynchronously so we can ack Meta within their timeout.
-  processWebhook(body).catch((error) => {
-    console.error('Error processing webhook:', error)
+  // Process asynchronously using Next.js after() to ensure the serverless
+  // function stays awake until all database writes/broadcasts complete.
+  after(async () => {
+    try {
+      await processWebhook(body)
+    } catch (error) {
+      console.error('Error processing webhook inside after():', error)
+    }
   })
 
   return NextResponse.json({ status: 'received' }, { status: 200 })
@@ -653,23 +660,25 @@ async function processMessage(
     return
   }
 
-  // Forward to n8n if configured (fire-and-forget)
+  // Forward to n8n if configured (awaited to prevent Vercel container freeze)
   const incomingWebhookUrl = n8nWebhookUrl || process.env.N8N_INCOMING_WEBHOOK_URL
   if (incomingWebhookUrl) {
-    fetch(incomingWebhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-secret': process.env.N8N_BRIDGE_SECRET || '',
-      },
-      body: JSON.stringify({
-        message,
-        contactId: contactRecord.id,
-        accountId,
-      }),
-    }).catch((err) => {
+    try {
+      await fetch(incomingWebhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-secret': process.env.N8N_BRIDGE_SECRET || '',
+        },
+        body: JSON.stringify({
+          message,
+          contactId: contactRecord.id,
+          accountId,
+        }),
+      })
+    } catch (err) {
       console.error('[webhook] Failed to forward incoming message to n8n:', err)
-    })
+    }
   }
 
   // Update conversation
@@ -758,7 +767,7 @@ async function processMessage(
   // listens to only one trigger runs only when that trigger matches.
   if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
   if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
-  for (const triggerType of automationTriggers) {
+  const automationPromises = automationTriggers.map((triggerType) =>
     runAutomationsForTrigger({
       accountId,
       triggerType,
@@ -768,7 +777,8 @@ async function processMessage(
         conversation_id: conversation.id,
       },
     }).catch((err) => console.error('[automations] dispatch failed:', err))
-  }
+  )
+  await Promise.all(automationPromises)
 }
 
 async function parseMessageContent(
