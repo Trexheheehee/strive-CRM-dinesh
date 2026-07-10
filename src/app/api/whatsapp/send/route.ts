@@ -64,7 +64,6 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const {
-      conversation_id,
       message_type,
       content_text,
       media_url,
@@ -75,10 +74,12 @@ export async function POST(request: Request) {
       template_message_params,
       reply_to_message_id,
     } = body
+    let conversation_id = body.conversation_id
+    const contact_id = body.contact_id
 
-    if (!conversation_id || !message_type) {
+    if ((!conversation_id && !contact_id) || !message_type) {
       return NextResponse.json(
-        { error: 'conversation_id and message_type are required' },
+        { error: 'Either conversation_id or contact_id is required, along with message_type' },
         { status: 400 }
       )
     }
@@ -133,25 +134,108 @@ export async function POST(request: Request) {
       )
     }
 
-    // Fetch conversation and contact
-    const { data: conversation, error: convError } = await supabase
-      .from('conversations')
-      .select('*, contact:contacts(*)')
-      .eq('id', conversation_id)
-      .eq('account_id', accountId)
-      .single()
+    // Fetch or create conversation and contact
+    let conversation = null
+    let resolvedContactId = contact_id
 
-    if (convError || !conversation) {
+    // 1. If conversation_id is passed, check if it exists in the database
+    if (conversation_id) {
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('*, contact:contacts(*)')
+        .eq('id', conversation_id)
+        .eq('account_id', accountId)
+        .maybeSingle()
+
+      if (conv) {
+        conversation = conv
+      } else {
+        // If the conversation is not found by ID, check if conversation_id is actually a contact_id
+        const { data: contactRow } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('id', conversation_id)
+          .eq('account_id', accountId)
+          .maybeSingle()
+
+        if (contactRow) {
+          resolvedContactId = contactRow.id
+        }
+      }
+    }
+
+    // 2. If we don't have a conversation, but we have a contact_id, find or create the conversation
+    if (!conversation && resolvedContactId) {
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('*, contact:contacts(*)')
+        .eq('account_id', accountId)
+        .eq('contact_id', resolvedContactId)
+        .maybeSingle()
+
+      if (existingConv) {
+        conversation = existingConv
+      } else {
+        // Create a new conversation record
+        const { data: newConv, error: createError } = await supabase
+          .from('conversations')
+          .insert({
+            account_id: accountId,
+            user_id: user.id,
+            contact_id: resolvedContactId,
+            status: 'open',
+          })
+          .select('*, contact:contacts(*)')
+          .single()
+
+        if (createError) {
+          console.error('[whatsapp/send] Error creating conversation:', createError)
+          return NextResponse.json(
+            { error: `Failed to create conversation: ${createError.message}` },
+            { status: 500 }
+          )
+        }
+        conversation = newConv
+      }
+    }
+
+    if (!conversation) {
       return NextResponse.json(
-        { error: 'Conversation not found' },
+        { error: 'Conversation or Contact not found' },
         { status: 404 }
       )
     }
 
+    // Ensure we keep the resolved conversation ID for subsequent inserts/updates
+    conversation_id = conversation.id
     const contact = conversation.contact
+
     if (!contact?.phone) {
       return NextResponse.json(
         { error: 'Contact phone number not found' },
+        { status: 400 }
+      )
+    }
+
+    // Expired 24-hour Session Window Validation
+    const { data: lastCustomerMsg } = await supabase
+      .from('messages')
+      .select('created_at')
+      .eq('conversation_id', conversation_id)
+      .eq('sender_type', 'customer')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const hoursSinceLastCustomer = lastCustomerMsg
+      ? (Date.now() - new Date(lastCustomerMsg.created_at).getTime()) / (1000 * 60 * 60)
+      : null
+
+    const sessionExpired = !lastCustomerMsg || (hoursSinceLastCustomer !== null && hoursSinceLastCustomer >= 24)
+
+    if (sessionExpired && message_type !== 'template') {
+      return NextResponse.json(
+        { error: 'The 24-hour WhatsApp session window has expired. You must send a template message to re-engage this contact.' },
         { status: 400 }
       )
     }

@@ -43,7 +43,7 @@ const MASKED_TOKEN = '••••••••••••••••';
 type ConnectionStatus = 'connected' | 'disconnected' | 'unknown';
 type ResetReason = 'token_corrupted' | 'meta_api_error' | null;
 
-export function WhatsAppConfig() {
+export default function WhatsAppConfig() {
   const supabase = createClient();
   // After multi-user, whatsapp_config is one-row-per-account, not
   // one-row-per-user. We pull `accountId` straight off the auth
@@ -185,10 +185,10 @@ export function WhatsAppConfig() {
 
     window.fbAsyncInit = function () {
       window.FB.init({
-        appId: process.env.NEXT_PUBLIC_WHATSAPP_APP_ID || '',
+        appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || process.env.NEXT_PUBLIC_WHATSAPP_APP_ID || '',
         cookie: true,
         xfbml: true,
-        version: 'v21.0',
+        version: process.env.NEXT_PUBLIC_FACEBOOK_SDK_VERSION || 'v20.0',
       });
     };
 
@@ -212,17 +212,52 @@ export function WhatsAppConfig() {
       return;
     }
 
+    const configId = process.env.NEXT_PUBLIC_FACEBOOK_CONFIG_ID;
+
     window.FB.login(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (response: any) => {
+      async (response: any) => {
         console.log('[Meta Embedded Signup] Auth Response:', response);
         if (response.authResponse) {
-          toast.success('Successfully authenticated with Facebook!');
+          const authCode = response.authResponse.code;
+          if (!authCode) {
+            toast.error('Authentication succeeded, but no authorization code was returned.');
+            return;
+          }
+
+          toast.loading('Exchanging authorization code for access token...', { id: 'facebook-auth' });
+          try {
+            const res = await fetch('/api/whatsapp/exchange-code', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code: authCode }),
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+              throw new Error(data.error || 'Failed to exchange authorization code');
+            }
+
+            if (data.access_token) {
+              setAccessToken(data.access_token);
+              setTokenEdited(true);
+              toast.success('Successfully authenticated & retrieved Access Token!', { id: 'facebook-auth' });
+            } else {
+              throw new Error('Access token not found in exchange response');
+            }
+          } catch (err) {
+            console.error('[Meta Embedded Signup] Exchange failed:', err);
+            const msg = err instanceof Error ? err.message : 'Unknown error';
+            toast.error(`Authentication failed: ${msg}`, { id: 'facebook-auth' });
+          }
         } else {
           toast.error('Facebook login cancelled or failed.');
         }
       },
       {
+        config_id: configId || undefined,
+        response_type: 'code',
+        override_default_response_type: true,
         scope: 'whatsapp_business_management,whatsapp_business_messaging',
         extras: {
           feature: 'whatsapp_embedded_signup',

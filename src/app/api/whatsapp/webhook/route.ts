@@ -368,6 +368,13 @@ async function handleStatusUpdate(status: {
     message: string
   }>
 }) {
+  if (status.status === 'failed') {
+    const errorDetails = status.errors && status.errors.length > 0
+      ? `${status.errors[0].message} (code: ${status.errors[0].code})`
+      : 'No error details'
+    console.error(`[whatsapp/webhook] Message ${status.id} delivery failed: ${errorDetails}`)
+  }
+
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
   //    already match the CHECK constraint on messages.status.
   const { error: msgErr } = await supabaseAdmin()
