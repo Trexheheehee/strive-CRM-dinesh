@@ -93,75 +93,77 @@ export default function WhatsAppConfig() {
       ? `${window.location.origin}/api/whatsapp/webhook`
       : '';
 
-  const fetchConfig = useCallback(async (acctId: string) => {
+  const fetchConfig = useCallback((acctId: string) => {
     setLoading(true);
-    try {
-      // Load form values from Supabase (shows what's in DB).
-      // Switched from `user_id` (which would only match the row's
-      // original author) to `account_id` so every member of the
-      // account sees the same saved configuration. UNIQUE(account_id)
-      // on the table guarantees the .maybeSingle() return type
-      // remains accurate.
-      const { data, error } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', acctId)
-        .maybeSingle();
+    (async () => {
+      try {
+        // Load form values from Supabase (shows what's in DB).
+        // Switched from `user_id` (which would only match the row's
+        // original author) to `account_id` so every member of the
+        // account sees the same saved configuration. UNIQUE(account_id)
+        // on the table guarantees the .maybeSingle() return type
+        // remains accurate.
+        const { data, error } = await supabase
+          .from('whatsapp_config')
+          .select('*')
+          .eq('account_id', acctId)
+          .maybeSingle();
 
-      if (error) {
-        console.error('Failed to load config row:', error);
-      }
-
-      if (data) {
-        setConfig(data);
-        setPhoneNumberId(data.phone_number_id || '');
-        setWabaId(data.waba_id || '');
-        setAccessToken(MASKED_TOKEN);
-        setVerifyToken('');
-        setPin('');
-        setTokenEdited(false);
-      } else {
-        setConfig(null);
-        setPhoneNumberId('');
-        setWabaId('');
-        setAccessToken('');
-        setVerifyToken('');
-        setPin('');
-        setTokenEdited(false);
-      }
-      // Clear any stale probe result when reloading the row.
-      setRegistrationProbe(null);
-
-      // Then verify health via the API (decrypts token + pings Meta)
-      if (data) {
-        try {
-          const res = await fetch('/api/whatsapp/config', { method: 'GET' });
-          const payload = await res.json();
-
-          if (payload.connected) {
-            setConnectionStatus('connected');
-            setResetReason(null);
-            setStatusMessage('');
-          } else {
-            setConnectionStatus('disconnected');
-            setResetReason(payload.needs_reset ? 'token_corrupted' : payload.reason === 'meta_api_error' ? 'meta_api_error' : null);
-            setStatusMessage(payload.message || '');
-          }
-        } catch (err) {
-          console.error('Health check failed:', err);
-          setConnectionStatus('disconnected');
+        if (error) {
+          console.error('Failed to load config row:', error);
         }
-      } else {
-        setConnectionStatus('disconnected');
-        setResetReason(null);
-        setStatusMessage('');
+
+        if (data) {
+          setConfig(data);
+          setPhoneNumberId(data.phone_number_id || '');
+          setWabaId(data.waba_id || '');
+          setAccessToken(MASKED_TOKEN);
+          setVerifyToken('');
+          setPin('');
+          setTokenEdited(false);
+        } else {
+          setConfig(null);
+          setPhoneNumberId('');
+          setWabaId('');
+          setAccessToken('');
+          setVerifyToken('');
+          setPin('');
+          setTokenEdited(false);
+        }
+        // Clear any stale probe result when reloading the row.
+        setRegistrationProbe(null);
+
+        // Then verify health via the API (decrypts token + pings Meta)
+        if (data) {
+          try {
+            const res = await fetch('/api/whatsapp/config', { method: 'GET' });
+            const payload = await res.json();
+
+            if (payload.connected) {
+              setConnectionStatus('connected');
+              setResetReason(null);
+              setStatusMessage('');
+            } else {
+              setConnectionStatus('disconnected');
+              setResetReason(payload.needs_reset ? 'token_corrupted' : payload.reason === 'meta_api_error' ? 'meta_api_error' : null);
+              setStatusMessage(payload.message || '');
+            }
+          } catch (err) {
+            console.error('Health check failed:', err);
+            setConnectionStatus('disconnected');
+          }
+        } else {
+          setConnectionStatus('disconnected');
+          setResetReason(null);
+          setStatusMessage('');
+        }
+      } catch (err) {
+        console.error('fetchConfig error:', err);
+        toast.error('Failed to load WhatsApp configuration');
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error('fetchConfig error:', err);
-      toast.error('Failed to load WhatsApp configuration');
-    } finally {
-      setLoading(false);
-    }
+    })();
   }, [supabase]);
 
   useEffect(() => {
@@ -216,7 +218,7 @@ export default function WhatsAppConfig() {
 
     window.FB.login(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      async (response: any) => {
+      (response: any) => {
         console.log('[Meta Embedded Signup] Auth Response:', response);
         if (response.authResponse) {
           const authCode = response.authResponse.code;
@@ -226,30 +228,32 @@ export default function WhatsAppConfig() {
           }
 
           toast.loading('Exchanging authorization code for access token...', { id: 'facebook-auth' });
-          try {
-            const res = await fetch('/api/whatsapp/exchange-code', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ code: authCode }),
-            });
+          (async () => {
+            try {
+              const res = await fetch('/api/whatsapp/exchange-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: authCode }),
+              });
 
-            const data = await res.json();
-            if (!res.ok) {
-              throw new Error(data.error || 'Failed to exchange authorization code');
-            }
+              const data = await res.json();
+              if (!res.ok) {
+                throw new Error(data.error || 'Failed to exchange authorization code');
+              }
 
-            if (data.access_token) {
-              setAccessToken(data.access_token);
-              setTokenEdited(true);
-              toast.success('Successfully authenticated & retrieved Access Token!', { id: 'facebook-auth' });
-            } else {
-              throw new Error('Access token not found in exchange response');
+              if (data.access_token) {
+                setAccessToken(data.access_token);
+                setTokenEdited(true);
+                toast.success('Successfully authenticated & retrieved Access Token!', { id: 'facebook-auth' });
+              } else {
+                throw new Error('Access token not found in exchange response');
+              }
+            } catch (err) {
+              console.error('[Meta Embedded Signup] Exchange failed:', err);
+              const msg = err instanceof Error ? err.message : 'Unknown error';
+              toast.error(`Authentication failed: ${msg}`, { id: 'facebook-auth' });
             }
-          } catch (err) {
-            console.error('[Meta Embedded Signup] Exchange failed:', err);
-            const msg = err instanceof Error ? err.message : 'Unknown error';
-            toast.error(`Authentication failed: ${msg}`, { id: 'facebook-auth' });
-          }
+          })();
         } else {
           toast.error('Facebook login cancelled or failed.');
         }
@@ -352,7 +356,7 @@ export default function WhatsAppConfig() {
         setPin('');
       }
 
-      if (accountId) await fetchConfig(accountId);
+      if (accountId) fetchConfig(accountId);
     } catch (err) {
       console.error('Save error:', err);
       toast.error('Failed to save configuration');
@@ -408,7 +412,7 @@ export default function WhatsAppConfig() {
           { duration: 8000 },
         );
       }
-      if (accountId) await fetchConfig(accountId);
+      if (accountId) fetchConfig(accountId);
     } catch (err) {
       console.error('verify-registration failed:', err);
       toast.error('Could not reach the verification endpoint.');
@@ -493,7 +497,7 @@ export default function WhatsAppConfig() {
                   {statusMessage}
                 </AlertDescription>
                 <Button
-                  onClick={handleReset}
+                  onClick={() => { handleReset(); }}
                   disabled={resetting}
                   size="sm"
                   className="mt-3 bg-amber-600 hover:bg-amber-700 text-white"
@@ -568,7 +572,7 @@ export default function WhatsAppConfig() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleVerifyRegistration}
+                onClick={() => { handleVerifyRegistration(); }}
                 disabled={verifyingRegistration}
                 className="border-border bg-transparent text-foreground hover:bg-muted h-7"
               >
@@ -809,7 +813,7 @@ export default function WhatsAppConfig() {
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-3">
           <Button
-            onClick={handleSave}
+            onClick={() => { handleSave(); }}
             disabled={saving}
             className="bg-primary hover:bg-primary/90 text-primary-foreground"
           >
@@ -824,7 +828,7 @@ export default function WhatsAppConfig() {
           </Button>
           <Button
             variant="outline"
-            onClick={handleTestConnection}
+            onClick={() => { handleTestConnection(); }}
             disabled={testing || !config}
             className="border-border text-muted-foreground hover:text-foreground hover:bg-muted"
           >
@@ -843,7 +847,7 @@ export default function WhatsAppConfig() {
           {config && (
             <Button
               variant="outline"
-              onClick={handleReset}
+              onClick={() => { handleReset(); }}
               disabled={resetting}
               className="border-red-900 text-red-400 hover:text-red-300 hover:bg-red-950/40"
             >
